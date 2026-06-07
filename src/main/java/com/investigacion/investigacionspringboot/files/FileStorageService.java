@@ -1,15 +1,11 @@
 package com.investigacion.investigacionspringboot.files;
 
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -23,22 +19,23 @@ public class FileStorageService {
         this.restClient = restClientBuilder.baseUrl(properties.baseUrl()).build();
     }
 
-    public FileUploadResponse uploadFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new FileStorageException("Debes enviar un archivo");
+    public String requestUploadUrl(Long userId, FileUploadUrlRequest request) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("clientId", userId);
+
+        if (request != null) {
+            body.put("fileName", request.fileName());
+            body.put("contentType", request.contentType());
         }
 
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", toResource(file));
+        Map<String, Object> response = callUploadUrlApi(body);
+        String uploadUrl = getStringValue(response, "uploadUrl", "url", "location");
 
-        Map<String, Object> response = callUploadApi(body);
-        String fileId = getStringValue(response, "fileId", "id");
-
-        if (fileId == null || fileId.isBlank()) {
-            throw new FileStorageException("La API de archivos no devolvio un ID valido");
+        if (uploadUrl == null || uploadUrl.isBlank()) {
+            throw new FileStorageException("La API de archivos no devolvio una URL de subida valida");
         }
 
-        return new FileUploadResponse(fileId);
+        return uploadUrl;
     }
 
     public FileDownloadResponse getDownloadUrl(String fileId) {
@@ -47,7 +44,7 @@ public class FileStorageService {
         }
 
         Map<String, Object> response = callDownloadApi(fileId);
-        String downloadUrl = getStringValue(response, "downloadUrl", "url");
+        String downloadUrl = getStringValue(response, "downloadUrl", "url", "location");
 
         if (downloadUrl == null || downloadUrl.isBlank()) {
             throw new FileStorageException("La API de archivos no devolvio una URL valida");
@@ -56,30 +53,17 @@ public class FileStorageService {
         return new FileDownloadResponse(fileId, downloadUrl);
     }
 
-    private ByteArrayResource toResource(MultipartFile file) {
-        try {
-            return new ByteArrayResource(file.getBytes()) {
-                @Override
-                public String getFilename() {
-                    return file.getOriginalFilename();
-                }
-            };
-        } catch (IOException exception) {
-            throw new FileStorageException("No se pudo leer el archivo", exception);
-        }
-    }
-
     @SuppressWarnings("unchecked")
-    private Map<String, Object> callUploadApi(MultiValueMap<String, Object> body) {
+    private Map<String, Object> callUploadUrlApi(Map<String, Object> body) {
         try {
             return restClient.post()
-                    .uri(properties.uploadPath())
-                    .contentType(MediaType.MULTIPART_FORM_DATA)
+                    .uri(properties.uploadUrlPath())
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
                     .body(Map.class);
         } catch (RestClientException exception) {
-            throw new FileStorageException("No se pudo subir el archivo a la API externa", exception);
+            throw new FileStorageException("No se pudo solicitar la URL de subida a la API externa", exception);
         }
     }
 
@@ -95,16 +79,18 @@ public class FileStorageService {
         }
     }
 
-    private String getStringValue(Map<String, Object> response, String firstKey, String secondKey) {
+    private String getStringValue(Map<String, Object> response, String... keys) {
         if (response == null) {
             return null;
         }
 
-        Object value = response.get(firstKey);
-        if (value == null) {
-            value = response.get(secondKey);
+        for (String key : keys) {
+            Object value = response.get(key);
+            if (value != null) {
+                return value.toString();
+            }
         }
 
-        return value == null ? null : value.toString();
+        return null;
     }
 }

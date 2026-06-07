@@ -1,13 +1,16 @@
 package com.investigacion.investigacionspringboot.files;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
+
+import java.net.URI;
 
 @RestController
 @RequestMapping("/api/protected/files")
@@ -19,9 +22,16 @@ public class FileController {
         this.fileStorageService = fileStorageService;
     }
 
-    @PostMapping
-    public ResponseEntity<FileUploadResponse> uploadFile(@RequestParam("file") MultipartFile file) {
-        return ResponseEntity.ok(fileStorageService.uploadFile(file));
+    @PostMapping({"", "/upload"})
+    public ResponseEntity<Void> requestUploadUrl(
+            @RequestAttribute("userId") Long userId,
+            @RequestBody(required = false) FileUploadUrlRequest request
+    ) {
+        String uploadUrl = fileStorageService.requestUploadUrl(userId, request);
+
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(uploadUrl))
+                .build();
     }
 
     @GetMapping("/{fileId}")
