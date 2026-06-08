@@ -1,6 +1,6 @@
 # database.py
 # "Base de datos" en memoria — equivale a H2 in-memory de Spring Boot.
-# Los datos se pierden al reiniciar, igual que en el proyecto original.
+# Los datos se pierden al reiniciar.
 #
 # Estructura:
 #   users: dict[int, dict]  →  { id: { id, name, email, password_hash } }

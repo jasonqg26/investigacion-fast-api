@@ -1,6 +1,6 @@
 # main.py
 # Punto de entrada de la aplicación FastAPI.
-# Equivale a InvestigacionSpringBootApplication.java
+# Equivale a SpringBootApplication.java
 #
 # Para correr:
 #   uvicorn main:app --reload --port 8081
@@ -27,7 +27,7 @@ app.include_router(protected.router)
 
 
 # Manejador de errores de validación — devuelve el primer mensaje de error en el
-# mismo formato que usaba Spring Boot ({ "message": "..." })
+# mismo formato que usa Spring Boot ({ "message": "..." })
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request, exc: RequestValidationError):
     first_error = exc.errors()[0]["msg"].replace("Value error, ", "")
