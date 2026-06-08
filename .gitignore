@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### FastAPI / Python ###
+fastapi-app/.venv/
+fastapi-app/__pycache__/
+fastapi-app/**/__pycache__/
+fastapi-app/*.pyc
+fastapi-app/**/*.pyc
