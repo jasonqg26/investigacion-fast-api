@@ -1,0 +1,177 @@
+@startuml diagrama-clases
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #EAF4FB
+skinparam classBorderColor #2980B9
+skinparam classHeaderBackgroundColor #2980B9
+skinparam classHeaderFontColor #FFFFFF
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+skinparam groupBackgroundColor #F8F9FA
+skinparam groupBorderColor #AEB6BF
+
+title Diagrama de Clases — Sistema Completo\n
+
+' ============================================================
+'  PAQUETE: API GATEWAY (FastAPI — Python)
+' ============================================================
+package "API Gateway  [FastAPI :8081]" #EAF7EA {
+
+    class "RegisterRequest\n<<Pydantic Model>>" as RegReq {
+        + name : str
+        + email : EmailStr
+        + password : str
+        --
+        + name_not_blank() : str
+        + password_min_length() : str
+    }
+
+    class "LoginRequest\n<<Pydantic Model>>" as LogReq {
+        + email : EmailStr
+        + password : str
+    }
+
+    class "AuthResponse\n<<Pydantic Model>>" as AuthResp {
+        + id : int
+        + name : str
+        + email : str
+        + token : str | None
+        + message : str
+    }
+
+    class "FileUploadResponse\n<<Pydantic Model>>" as UpResp {
+        + fileId : str
+    }
+
+    class "FileDownloadResponse\n<<Pydantic Model>>" as DownResp {
+        + fileId : str
+        + downloadUrl : str
+    }
+
+    class "AuthRouter\n<<APIRouter /api/auth>>" as AuthRouter {
+        - pwd_context : CryptContext
+        --
+        + register(request: RegisterRequest) : AuthResponse
+        + login(request: LoginRequest) : AuthResponse
+    }
+
+    class "ProtectedRouter\n<<APIRouter /api/protected>>" as ProtRouter {
+        + hello() : dict
+        + request_upload() : RedirectResponse
+        + get_download_url(file_id: str) : FileDownloadResponse
+    }
+
+    class "Database\n<<Módulo en memoria>>" as DB {
+        + users : dict[int, dict]
+        + tokens : dict[str, int]
+        - _next_id : int
+        - _lock : Lock
+        --
+        + next_id() : int
+    }
+
+    class "get_current_user_id\n<<Dependency>>" as AuthDep {
+        - bearer_scheme : HTTPBearer
+        --
+        + __call__(credentials) : int
+    }
+
+    class "Config\n<<Módulo>>" as Cfg {
+        + FILE_STORAGE_BASE_URL : str
+        + FILE_STORAGE_UPLOAD_URL_PATH : str
+        + FILE_STORAGE_UPLOAD_PATH : str
+        + FILE_STORAGE_DOWNLOAD_PATH : str
+    }
+
+    AuthRouter --> DB          : lee/escribe usuarios\ny tokens
+    AuthRouter ..> RegReq      : recibe
+    AuthRouter ..> LogReq      : recibe
+    AuthRouter ..> AuthResp    : retorna
+
+    ProtRouter --> AuthDep     : inyecta dependencia
+    ProtRouter --> Cfg         : lee URLs externas
+    ProtRouter ..> UpResp      : retorna (futuro)
+    ProtRouter ..> DownResp    : retorna
+    AuthDep --> DB             : verifica token
+}
+
+' ============================================================
+'  PAQUETE: SERVICIO DE ARCHIVOS (Node.js / Express)
+' ============================================================
+package "Servicio de Archivos  [Node.js :3000]" #FEF9E7 {
+
+    class "FileController\n<<Express Handler>>" as FileCtrl {
+        - upload : Multer
+        - ALLOWED_MIME_TYPES : Set
+        - MAX_FILE_SIZE : 10MB
+        --
+        + getUploadUrl(req, res) : void
+        + receiveUpload(req, res) : void
+        + getDownloadUrl(req, res) : void
+        + serveFile(req, res) : void
+    }
+
+    class "FileService\n<<Business Logic>>" as FileSvc {
+        - STORAGE_DIR : string
+        - DOWNLOAD_SECRET : string
+        - UPLOAD_SECRET : string
+        --
+        + generateUploadUrl() : string
+        + validateUploadToken(token) : {jti}
+        + registerUpload(fileId, file) : string
+        + generateDownloadUrl(fileId) : string
+        + resolveDownload(token) : {filePath, metadata}
+    }
+
+    class "MetadataStore\n<<JSON Persistence>>" as MetaStore {
+        - DB_PATH : string
+        --
+        + saveFileMetadata(fileId, name, stored,\n  mime, size) : void
+        + getFileMetadata(fileId) : Object | null
+        - loadStore() : Object
+        - saveStore(store) : void
+    }
+
+    class "TokenBlacklist\n<<In-Memory Set>>" as Blacklist {
+        - usedTokens : Set<string>
+        --
+        + isTokenUsed(jti) : boolean
+        + markTokenAsUsed(jti) : void
+    }
+
+    class "AuditLogger\n<<Utility>>" as Audit {
+        - LOG_PATH : string
+        --
+        + audit(event, details) : void
+    }
+
+    class "FileMetadata\n<<Data Record>>" as FileMeta {
+        + fileId : string
+        + originalName : string
+        + storedName : string
+        + mimeType : string
+        + size : number
+        + createdAt : ISO8601
+    }
+
+    FileCtrl --> FileSvc     : delega lógica
+    FileSvc --> MetaStore    : persiste/consulta\nmetadatos
+    FileSvc --> Blacklist    : verifica y marca\ntokens usados
+    FileSvc --> Audit        : registra eventos
+    MetaStore ..> FileMeta   : serializa/deserializa
+}
+
+' ============================================================
+'  RELACIÓN ENTRE SERVICIOS
+' ============================================================
+ProtRouter --> FileCtrl : HTTP interno\n(httpx client)
+
+note as N1
+  La comunicación entre servicios
+  es HTTP REST puro.
+  No comparten código ni memoria.
+end note
+
+@enduml

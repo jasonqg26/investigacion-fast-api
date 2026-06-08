@@ -1,0 +1,94 @@
+@startuml arquitectura-general
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+
+title Arquitectura General del Sistema\n
+
+skinparam node {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    FontColor #1A252F
+}
+
+skinparam component {
+    BackgroundColor #EAF7EA
+    BorderColor #27AE60
+    FontColor #1A252F
+}
+
+skinparam database {
+    BackgroundColor #FEF9E7
+    BorderColor #F39C12
+    FontColor #1A252F
+}
+
+skinparam actor {
+    BackgroundColor #FDEDEC
+    BorderColor #E74C3C
+}
+
+actor "Cliente\n(Postman / Browser)" as client
+
+node "API Gateway\nFastAPI — :8081" as fastapi {
+    component "POST /api/auth/register" as register
+    component "POST /api/auth/login" as login
+    component "GET  /api/protected/hello" as hello
+    component "POST /api/protected/files" as upload_req
+    component "GET  /api/protected/files/{id}" as download_req
+
+    database "Usuarios\n(memoria)" as mem_users
+    database "Sesiones / Tokens\n(memoria)" as mem_tokens
+}
+
+node "Servicio de Archivos\nNode.js / Express — :3000" as nodeapp {
+    component "POST /files/upload-url" as upload_url
+    component "POST /files/upload?token=..." as upload_file
+    component "GET  /files/:fileId" as get_url
+    component "GET  /files/download?token=..." as serve_file
+
+    database "metadata.json\n(disco)" as json_db
+    database "src/storage/\n(disco)" as disk
+}
+
+' Flujos del cliente hacia FastAPI
+client --> register  : 1. Registrar usuario
+client --> login     : 2. Login → Bearer token
+client --> hello     : 3. Ping (Bearer)
+client --> upload_req : 4. Solicitar subida (Bearer)
+client --> download_req : 7. Obtener URL descarga (Bearer)
+
+' Flujo interno FastAPI → memoria
+register --> mem_users : guarda usuario\n(bcrypt hash)
+login --> mem_tokens   : genera UUID token
+
+' FastAPI → Node.js
+upload_req --> upload_url : GET uploadUrl\n(HTTP interno)
+download_req --> get_url  : GET downloadUrl\n(HTTP interno)
+
+' Redirect: cliente → Node.js directo
+client --> upload_file : 5. POST archivo\n(302 redirect, sin pasar por FastAPI)
+upload_file --> json_db : guarda metadatos
+upload_file --> disk    : guarda binario
+
+' Descarga
+client --> serve_file : 8. Descarga binario\n(con token firmado)
+serve_file --> disk    : lee archivo
+get_url --> json_db   : verifica existencia
+
+note bottom of mem_users
+  Los datos en memoria
+  se pierden al reiniciar.
+  Equivale a H2 in-memory.
+end note
+
+note bottom of json_db
+  Persiste entre reinicios.
+  Reemplazable por MongoDB
+  o PostgreSQL.
+end note
+
+@enduml

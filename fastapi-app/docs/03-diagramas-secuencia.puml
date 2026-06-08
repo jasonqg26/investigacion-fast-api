@@ -1,0 +1,108 @@
+@startuml diagrama-secuencia
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceArrowColor #2C3E50
+skinparam sequenceLifeLineBorderColor #2980B9
+skinparam sequenceParticipantBackgroundColor #EAF4FB
+skinparam sequenceParticipantBorderColor #2980B9
+skinparam sequenceParticipantFontColor #1A252F
+skinparam sequenceGroupBackgroundColor #F4F6F7
+skinparam sequenceGroupBorderColor #AEB6BF
+skinparam noteBorderColor #F39C12
+skinparam noteBackgroundColor #FEF9E7
+skinparam dividerBackgroundColor #D5DBDB
+
+title Diagramas de Secuencia — Flujos Principales\n
+
+participant "Cliente" as C #FDEDEC
+participant "FastAPI\n:8081" as FA #EAF7EA
+participant "Node.js\n:3000" as NJ #FEF9E7
+participant "Disco\n(storage/)" as DISK #F5EEF8
+
+== Flujo 1: Registro de usuario ==
+
+C -> FA : POST /api/auth/register\n{ name, email, password }
+activate FA
+FA -> FA : Valida campos (Pydantic)
+FA -> FA : Hash bcrypt(password)
+FA -> FA : Guarda usuario en memoria\n{ id, name, email, password_hash }
+FA --> C : 201 Created\n{ id, name, email, token: null, message }
+deactivate FA
+
+== Flujo 2: Login ==
+
+C -> FA : POST /api/auth/login\n{ email, password }
+activate FA
+FA -> FA : Busca usuario por email
+FA -> FA : Verifica bcrypt(password)
+FA -> FA : Genera UUID token\nguarda tokens[token] = user_id
+FA --> C : 200 OK\n{ id, name, email, token: "uuid", message }
+deactivate FA
+
+note over C : El cliente guarda el token\ny lo usa en cada request\nprotegido como Bearer token
+
+== Flujo 3: Subida de archivo (con pre-signed URL + 302 redirect) ==
+
+C -> FA : POST /api/protected/files\nAuthorization: Bearer <token>
+activate FA
+FA -> FA : Verifica token en memoria\n→ obtiene user_id
+
+FA -> NJ : POST /files/upload-url
+activate NJ
+NJ -> NJ : Genera JWT firmado\n{ action: "upload", jti: uuid }\nexpira en 10 min
+NJ --> FA : 200 OK\n{ uploadUrl: "http://localhost:3000/files/upload?token=..." }
+deactivate NJ
+
+FA --> C : 302 Found\nLocation: http://localhost:3000/files/upload?token=...
+deactivate FA
+
+note over C, NJ : El archivo viaja DIRECTO del cliente\nal servicio de archivos.\nNo pasa por FastAPI.
+
+C -> NJ : POST /files/upload?token=<jwt>\nContent-Type: multipart/form-data\n[campo: file]
+activate NJ
+NJ -> NJ : Verifica JWT de subida\n(firma + expiración)
+NJ -> NJ : Verifica uso único\n(TokenBlacklist)
+NJ -> NJ : Marca token como usado
+NJ -> NJ : Genera fileId (UUID)
+NJ -> NJ : Guarda metadatos\nen metadata.json
+NJ -> DISK : Escribe binario\n"<uuid>-<originalname>"
+activate DISK
+DISK --> NJ : OK
+deactivate DISK
+NJ --> C : 201 Created\n{ fileId: "uuid" }
+deactivate NJ
+
+== Flujo 4: Obtener URL de descarga ==
+
+C -> FA : GET /api/protected/files/{fileId}\nAuthorization: Bearer <token>
+activate FA
+FA -> FA : Verifica token en memoria
+FA -> NJ : GET /files/{fileId}
+activate NJ
+NJ -> NJ : Busca metadatos en metadata.json
+NJ -> NJ : Genera JWT firmado\n{ fileId, jti: uuid }\nexpira en 5 min
+NJ --> FA : 200 OK\n{ downloadUrl: "http://localhost:3000/files/download?token=..." }
+deactivate NJ
+FA --> C : 200 OK\n{ fileId, downloadUrl }
+deactivate FA
+
+== Flujo 5: Descarga del archivo ==
+
+C -> NJ : GET /files/download?token=<jwt>
+activate NJ
+NJ -> NJ : Verifica JWT de descarga\n(firma + expiración)
+NJ -> NJ : Verifica uso único\n(TokenBlacklist)
+NJ -> NJ : Marca token como usado
+NJ -> DISK : Lee archivo binario
+activate DISK
+DISK --> NJ : binario
+deactivate DISK
+NJ --> C : 200 OK\nContent-Disposition: attachment\n[binario del archivo]
+deactivate NJ
+
+note over NJ : El token de descarga es\nde un solo uso. Si se\nintenta reusar → 403.
+
+@enduml
